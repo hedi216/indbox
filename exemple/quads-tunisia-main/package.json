@@ -1,0 +1,22 @@
+{
+  "name": "quads-tunisia",
+  "version": "1.0.0",
+  "description": "Quads Tunisia full-stack application",
+  "scripts": {
+    "dev:full": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@tweenjs/tween.js": "^25.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "three": "^0.182.0"
+  }
+}

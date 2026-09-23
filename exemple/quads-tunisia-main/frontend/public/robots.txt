@@ -1,0 +1,15 @@
+# robots.txt for Quads Tunisia
+# Allow all search engines to index all pages
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://yourdomain.com/sitemap.xml
+
+# Crawl-delay (optional, helps prevent server overload)
+Crawl-delay: 1
+
+# Block admin pages from search engines
+Disallow: /admin/
+Disallow: /admin/*

@@ -1,0 +1,10 @@
+-- Guard inventory and monetary invariants even for writes outside the API.
+ALTER TABLE "Product" ADD CONSTRAINT "Product_stock_nonnegative" CHECK (stock >= 0), ADD CONSTRAINT "Product_price_nonnegative" CHECK (price >= 0), ADD CONSTRAINT "Product_quantity_positive" CHECK ("minimumQuantity" >= 1 AND "quantityPerLot" >= 1), ADD CONSTRAINT "Product_order_unit" CHECK ("orderUnit" IN ('UNIT', 'LOT'));
+ALTER TABLE "ProductVariant" ADD CONSTRAINT "Variant_stock_nonnegative" CHECK (stock >= 0), ADD CONSTRAINT "Variant_price_nonnegative" CHECK (price >= 0 AND ("compareAtPrice" IS NULL OR "compareAtPrice" >= 0)), ADD CONSTRAINT "Variant_quantity_positive" CHECK ("minimumQuantity" >= 1 AND "quantityPerLot" >= 1);
+ALTER TABLE "Order" ADD CONSTRAINT "Order_totals_consistent" CHECK (subtotal >= 0 AND "promotionDiscount" >= 0 AND "couponDiscount" >= 0 AND total >= 0 AND total = subtotal - "promotionDiscount" - "couponDiscount");
+ALTER TABLE "OrderItem" ADD CONSTRAINT "OrderItem_quantity_positive" CHECK (quantity > 0 AND "quantityPerLot" > 0), ADD CONSTRAINT "OrderItem_totals_consistent" CHECK ("regularPrice" >= "unitPrice" AND "unitPrice" >= 0 AND total = "unitPrice" * quantity);
+ALTER TABLE "Coupon" ADD CONSTRAINT "Coupon_limits_valid" CHECK ("usageCount" >= 0 AND ("usageLimit" IS NULL OR "usageLimit" > 0) AND ("perCustomerLimit" IS NULL OR "perCustomerLimit" > 0)), ADD CONSTRAINT "Coupon_discount_valid" CHECK (value >= 0 AND (type != 'PERCENTAGE' OR value <= 100)), ADD CONSTRAINT "Coupon_dates_valid" CHECK ("endsAt" > "startsAt");
+ALTER TABLE "Promotion" ADD CONSTRAINT "Promotion_discount_valid" CHECK (value >= 0 AND (type != 'PERCENTAGE' OR value <= 100)), ADD CONSTRAINT "Promotion_dates_valid" CHECK ("endsAt" > "startsAt");
+ALTER TABLE "QuoteRequestItem" ADD CONSTRAINT "QuoteItem_quantity_positive" CHECK (quantity > 0);
+ALTER TABLE "Category" ADD CONSTRAINT "Category_not_own_parent" CHECK (id != "parentId");
+ALTER TABLE "EmailNotification" ADD CONSTRAINT "Email_status_valid" CHECK (status IN ('PENDING','SENDING','RETRY','SENT','FAILED'));
