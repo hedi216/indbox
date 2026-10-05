@@ -267,38 +267,41 @@ async function main() {
       data: { related: { connect: related.map((x) => ({ id: x.id })) } },
     });
   }
-  const start = new Date(Date.now() - 86400000);
-  const end = new Date(Date.now() + 365 * 86400000);
-  for (const [code, type, value] of [
-    ["WELCOME10", "PERCENTAGE", 10],
-    ["BOX25", "FIXED", 25],
-    ["RAMADAN20", "PERCENTAGE", 20],
-  ] as const)
-    await db.coupon.upsert({
-      where: { code },
-      update: {},
-      create: {
-        code,
-        type,
-        value,
-        startsAt: start,
-        endsAt: end,
-        minimumOrder: code === "BOX25" ? 150 : 50,
-        usageLimit: 500,
-        perCustomerLimit: 3,
-      },
-    });
-  if (!(await db.promotion.count()))
-    await db.promotion.create({
-      data: {
-        name: "La sélection signature — 15 %",
-        type: "PERCENTAGE",
-        value: 15,
-        startsAt: start,
-        endsAt: end,
-        categories: { connect: { id: cats[0].id } },
-      },
-    });
+  const includeDemoData = process.env.NODE_ENV !== "production";
+  if (includeDemoData) {
+    const start = new Date(Date.now() - 86400000);
+    const end = new Date(Date.now() + 365 * 86400000);
+    for (const [code, type, value] of [
+      ["WELCOME10", "PERCENTAGE", 10],
+      ["BOX25", "FIXED", 25],
+      ["RAMADAN20", "PERCENTAGE", 20],
+    ] as const)
+      await db.coupon.upsert({
+        where: { code },
+        update: {},
+        create: {
+          code,
+          type,
+          value,
+          startsAt: start,
+          endsAt: end,
+          minimumOrder: code === "BOX25" ? 150 : 50,
+          usageLimit: 500,
+          perCustomerLimit: 3,
+        },
+      });
+    if (!(await db.promotion.count()))
+      await db.promotion.create({
+        data: {
+          name: "La sélection signature — 15 %",
+          type: "PERCENTAGE",
+          value: 15,
+          startsAt: start,
+          endsAt: end,
+          categories: { connect: { id: cats[0].id } },
+        },
+      });
+  }
   const services = [
     [
       "Packaging personnalisé",
@@ -364,138 +367,140 @@ async function main() {
       },
     },
   });
-  for (const [i, status] of (
-    ["NEW", "CONFIRMED", "IN_PREPARATION", "DELIVERED"] as OrderStatus[]
-  ).entries()) {
-    const email = `client${i + 1}@example.com`;
-    const c = await db.customer.upsert({
-      where: { email },
-      update: {},
-      create: {
-        email,
-        firstName: ["Amira", "Youssef", "Nour", "Sami"][i],
-        lastName: ["Ben Ali", "Mansour", "Trabelsi", "Ben Salem"][i],
-        phone: `+216 20 000 00${i}`,
-        company: ["Maison Amira", "Café Atelier", "Nour Cosmetics", "Studio S"][
-          i
-        ],
-        addresses: {
-          create: { street: "12 avenue de la Création", city: "Tunis" },
-        },
-      },
-    });
-    const key = `seed-order-${i}`;
-    if (!(await db.order.findUnique({ where: { idempotencyKey: key } }))) {
-      const p = all[i];
-      const v = await db.productVariant.findFirstOrThrow({
-        where: { productId: p.id },
-        orderBy: { sku: "asc" },
-      });
-      const total = Number(v.price) * 3;
-      const o = await db.order.create({
-        data: {
-          idempotencyKey: key,
-          number: `seed-pending-${i}`,
-          customerId: c.id,
-          status,
-          firstName: c.firstName,
-          lastName: c.lastName,
+  if (includeDemoData) {
+    for (const [i, status] of (
+      ["NEW", "CONFIRMED", "IN_PREPARATION", "DELIVERED"] as OrderStatus[]
+    ).entries()) {
+      const email = `client${i + 1}@example.com`;
+      const c = await db.customer.upsert({
+        where: { email },
+        update: {},
+        create: {
           email,
-          phone: c.phone,
-          address: "12 avenue de la Création",
-          city: "Tunis",
-          company: c.company,
-          subtotal: total,
-          promotionDiscount: 0,
-          couponDiscount: 0,
-          total,
-          notes: "Commande de démonstration.",
-          items: {
-            create: {
-              productId: p.id,
-              variantId: v.id,
-              productName: p.name,
-              variantName: v.name,
-              sku: v.sku,
-              image: `/assets/catalog/${products[i][3]}.webp`,
-              quantity: 3,
-              orderUnit: p.orderUnit,
-              quantityPerLot: v.quantityPerLot,
-              regularPrice: v.price,
-              unitPrice: v.price,
-              total,
-            },
+          firstName: ["Amira", "Youssef", "Nour", "Sami"][i],
+          lastName: ["Ben Ali", "Mansour", "Trabelsi", "Ben Salem"][i],
+          phone: `+216 20 000 00${i}`,
+          company: ["Maison Amira", "Café Atelier", "Nour Cosmetics", "Studio S"][
+            i
+          ],
+          addresses: {
+            create: { street: "12 avenue de la Création", city: "Tunis" },
           },
-          history: {
-            create: [
-              {
-                status: "NEW",
-                actor: "Démonstration",
-                note: "Commande de démonstration",
+        },
+      });
+      const key = `seed-order-${i}`;
+      if (!(await db.order.findUnique({ where: { idempotencyKey: key } }))) {
+        const p = all[i];
+        const v = await db.productVariant.findFirstOrThrow({
+          where: { productId: p.id },
+          orderBy: { sku: "asc" },
+        });
+        const total = Number(v.price) * 3;
+        const o = await db.order.create({
+          data: {
+            idempotencyKey: key,
+            number: `seed-pending-${i}`,
+            customerId: c.id,
+            status,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            email,
+            phone: c.phone,
+            address: "12 avenue de la Création",
+            city: "Tunis",
+            company: c.company,
+            subtotal: total,
+            promotionDiscount: 0,
+            couponDiscount: 0,
+            total,
+            notes: "Commande de démonstration.",
+            items: {
+              create: {
+                productId: p.id,
+                variantId: v.id,
+                productName: p.name,
+                variantName: v.name,
+                sku: v.sku,
+                image: `/assets/catalog/${products[i][3]}.webp`,
+                quantity: 3,
+                orderUnit: p.orderUnit,
+                quantityPerLot: v.quantityPerLot,
+                regularPrice: v.price,
+                unitPrice: v.price,
+                total,
               },
-              ...(status !== "NEW"
-                ? [
-                    {
-                      status,
-                      actor: "Admin IN-D-BOX",
-                      note: "Exemple de suivi",
-                    },
-                  ]
-                : []),
-            ],
-          },
-        },
-      });
-      await db.order.update({
-        where: { id: o.id },
-        data: {
-          number: `INDB-${new Date().getFullYear()}-${String(o.sequence).padStart(6, "0")}`,
-        },
-      });
-    }
-  }
-  if (!(await db.quoteRequest.count()))
-    for (const [i, name] of ["Atelier Jasmin", "Maison Oliva"].entries()) {
-      const q = await db.quoteRequest.create({
-        data: {
-          number: `seed-quote-${i}`,
-          name,
-          company: name,
-          email: `devis${i + 1}@example.com`,
-          phone: "+216 22 000 000",
-          status: i ? "REVIEWING" : "NEW",
-          notes: "Personnalisation avec notre identité visuelle et dorure.",
-          files: [],
-          items: {
-            create: {
-              packagingType: "Coffret personnalisé",
-              quantity: 500,
-              dimensions: "25 × 20 × 10 cm",
-              material: "Carton rigide",
-              printing: "Dorure à chaud",
-              colors: "Noir et or",
-              categoryId: cats[0].id,
+            },
+            history: {
+              create: [
+                {
+                  status: "NEW",
+                  actor: "Démonstration",
+                  note: "Commande de démonstration",
+                },
+                ...(status !== "NEW"
+                  ? [
+                      {
+                        status,
+                        actor: "Admin IN-D-BOX",
+                        note: "Exemple de suivi",
+                      },
+                    ]
+                  : []),
+              ],
             },
           },
-        },
-      });
-      await db.quoteRequest.update({
-        where: { id: q.id },
-        data: {
-          number: `DEV-${new Date().getFullYear()}-${String(q.sequence).padStart(5, "0")}`,
-        },
-      });
+        });
+        await db.order.update({
+          where: { id: o.id },
+          data: {
+            number: `INDB-${new Date().getFullYear()}-${String(o.sequence).padStart(6, "0")}`,
+          },
+        });
+      }
     }
-  if (!(await db.contactMessage.count()))
-    await db.contactMessage.create({
-      data: {
-        name: "Le Comptoir",
-        email: "comptoir@example.com",
-        subject: "Personnalisation de sacs",
-        message:
-          "Bonjour, nous souhaitons découvrir vos finitions pour une collection de sacs shopping.",
-      },
-    });
+    if (!(await db.quoteRequest.count()))
+      for (const [i, name] of ["Atelier Jasmin", "Maison Oliva"].entries()) {
+        const q = await db.quoteRequest.create({
+          data: {
+            number: `seed-quote-${i}`,
+            name,
+            company: name,
+            email: `devis${i + 1}@example.com`,
+            phone: "+216 22 000 000",
+            status: i ? "REVIEWING" : "NEW",
+            notes: "Personnalisation avec notre identité visuelle et dorure.",
+            files: [],
+            items: {
+              create: {
+                packagingType: "Coffret personnalisé",
+                quantity: 500,
+                dimensions: "25 × 20 × 10 cm",
+                material: "Carton rigide",
+                printing: "Dorure à chaud",
+                colors: "Noir et or",
+                categoryId: cats[0].id,
+              },
+            },
+          },
+        });
+        await db.quoteRequest.update({
+          where: { id: q.id },
+          data: {
+            number: `DEV-${new Date().getFullYear()}-${String(q.sequence).padStart(5, "0")}`,
+          },
+        });
+      }
+    if (!(await db.contactMessage.count()))
+      await db.contactMessage.create({
+        data: {
+          name: "Le Comptoir",
+          email: "comptoir@example.com",
+          subject: "Personnalisation de sacs",
+          message:
+            "Bonjour, nous souhaitons découvrir vos finitions pour une collection de sacs shopping.",
+        },
+      });
+  }
   console.log(
     `Seed complete: ${await db.category.count()} categories, ${await db.product.count()} products. Development admin: ${process.env.SEED_ADMIN_EMAIL || "admin@indbox.local"}`,
   );
