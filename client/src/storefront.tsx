@@ -1,3 +1,4 @@
+import { PasswordInput } from "./security";
 import { useState, useEffect, type FormEvent } from "react";
 import {
   Link,
@@ -1550,6 +1551,9 @@ export function Account() {
       <SEO title="Mon compte" />
       <div className="panel">
         <p className="eyebrow">BIENVENUE CHEZ IN-D-BOX</p>
+        <p>
+          <Link to="/forgot-password">Mot de passe oublié ?</Link>
+        </p>
         <h1>{register ? "Créer mon compte" : "Heureux de vous retrouver."}</h1>
         <form onSubmit={submit}>
           {register && (
@@ -1568,19 +1572,18 @@ export function Account() {
           <Field label="Email">
             <input type="email" name="email" required autoComplete="email" />
           </Field>
-          <Field
-            label="Mot de passe"
-            hint={register ? "12 caractères minimum" : undefined}
-          >
-            <input
-              name="password"
-              type="password"
-              minLength={register ? 12 : 1}
-              maxLength={72}
-              required
-              autoComplete={register ? "new-password" : "current-password"}
-            />
-          </Field>
+          {register ? (
+            <PasswordInput label="Mot de passe" />
+          ) : (
+            <Field label="Mot de passe">
+              <input
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+              />
+            </Field>
+          )}
           <ErrorBox error={error} />
           <button className="button dark wide" disabled={busy}>
             {busy
@@ -1633,6 +1636,18 @@ function AccountDetails({ user, logout }: { user: any; logout: () => void }) {
           Se déconnecter
         </button>
       </div>
+      <p>
+        <Link to="/change-password">Changer mon mot de passe</Link>
+      </p>
+      {!user.emailVerified && (
+        <div className="notice">
+          <p>
+            Vérifiez votre adresse email grâce au lien envoyé lors de
+            l’inscription.
+          </p>
+          <Link to="/resend-verification">Renvoyer la vérification</Link>
+        </div>
+      )}
       {user.role !== "CUSTOMER" ? (
         <Link className="button" to="/admin">
           Ouvrir l’administration

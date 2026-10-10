@@ -9,7 +9,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "mail:check": "node dist/mail-check.js"
   },
   "dependencies": {
     "@prisma/client": "6.19.0",

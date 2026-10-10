@@ -45,9 +45,25 @@ model User {
  role Role @default(CUSTOMER)
  active Boolean @default(true)
  tokenVersion Int @default(0)
+ mustChangePassword Boolean @default(false)
+ temporaryPasswordExpiresAt DateTime? @db.Timestamptz(3)
+ emailVerified Boolean @default(false)
+ notificationPreferences Json @default("{}")
+ securityTokens UserSecurityToken[]
  customer Customer?
  createdAt DateTime @default(now()) @db.Timestamptz(3)
  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+model UserSecurityToken {
+ id String @id @default(cuid())
+ userId String
+ user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ tokenHash String @unique
+ purpose String
+ expiresAt DateTime @db.Timestamptz(3)
+ usedAt DateTime? @db.Timestamptz(3)
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([userId, purpose])
 }
 model Customer {
  id String @id @default(cuid())
@@ -336,6 +352,8 @@ model EmailNotification {
  id String @id @default(cuid())
  to String
  subject String
+ expiresAt DateTime? @db.Timestamptz(3)
+ sensitive Boolean @default(false)
  html String
  text String
  event String

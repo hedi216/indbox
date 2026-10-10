@@ -9,7 +9,8 @@ import {
   useLocation,
   Link,
 } from "react-router-dom";
-import { Store } from "./api";
+import { SecurityPage } from "./security";
+import { Store, useStore } from "./api";
 import {
   Layout,
   Home,
@@ -48,9 +49,11 @@ class Boundary extends React.Component<
 }
 function App() {
   const loc = useLocation();
+  const { user } = useStore();
   React.useEffect(() => {
     window.scrollTo(0, 0);
   }, [loc.pathname]);
+  if (user?.mustChangePassword) return <SecurityPage change />;
   return (
     <Routes>
       <Route path="/admin/*" element={<Admin />} />
@@ -68,6 +71,17 @@ function App() {
         <Route path="services" element={<Services />} />
         <Route path="about" element={<About />} />
         <Route path="account" element={<Account />} />
+        <Route path="verify-email" element={<SecurityPage key="verify" />} />
+        <Route path="forgot-password" element={<SecurityPage key="forgot" />} />
+        <Route
+          path="resend-verification"
+          element={<SecurityPage key="resend" />}
+        />
+        <Route path="reset-password" element={<SecurityPage key="reset" />} />
+        <Route
+          path="change-password"
+          element={<SecurityPage key="change" change />}
+        />
         <Route
           path="*"
           element={

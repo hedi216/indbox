@@ -10,3 +10,8 @@ uploads/
 playwright-report/
 test-results/
 *.tsbuildinfo
+
+# Production backups and database dumps must stay outside source control.
+backups/
+*.dump
+*.backup

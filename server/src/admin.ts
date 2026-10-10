@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import { temporaryCredentials, invalidateSecurity } from "./security.js";
 import { randomUUID } from "node:crypto";
 import {
   OrderStatus,
@@ -9,7 +9,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { db, transaction } from "./db.js";
-import { requireRole } from "./auth.js";
+import { requireRole, limited } from "./auth.js";
 import { ok, HttpError, page } from "./http.js";
 import { productInclude, transitions } from "./commerce.js";
 import {
@@ -20,7 +20,14 @@ import {
   serviceSchema,
   settingsSchema,
 } from "./validation.js";
-import { orderEmail, quoteEmail, smtpConfigured } from "./mail.js";
+import { deliveryCutoff } from "./mail-policy.js";
+import {
+  orderEmail,
+  quoteEmail,
+  smtpConfigured,
+  notificationKeys,
+  lowStockEmail,
+} from "./mail.js";
 export const admin = Router();
 admin.use(requireRole("ADMIN", "MANAGER"));
 const managerSections = new Set([
@@ -344,6 +351,12 @@ async function save(section: string, b: any, id: string | undefined, req: any) {
       }
     }
     if (section === "products") {
+      const before = id
+        ? await tx.product.findUnique({
+            where: { id },
+            include: { variants: true },
+          })
+        : null;
       const { images, variants, relatedIds, ...base } = b;
       data = {
         ...base,
@@ -390,6 +403,37 @@ async function save(section: string, b: any, id: string | undefined, req: any) {
           where: { id: v.id },
           data: { active: false },
         });
+      const stockItems = await tx.productVariant.findMany({
+        where: { productId: record.id, active: true },
+      });
+      if (record.trackStock && record.active) {
+        if (!stockItems.length)
+          await lowStockEmail(
+            tx,
+            {
+              productId: record.id,
+              productName: record.name,
+              sku: record.sku,
+              stock: record.stock,
+            },
+            before?.stock ?? Number.MAX_SAFE_INTEGER,
+            randomUUID(),
+          );
+        for (const variant of stockItems)
+          await lowStockEmail(
+            tx,
+            {
+              productId: record.id,
+              variantId: variant.id,
+              productName: `${record.name} — ${variant.name}`,
+              sku: variant.sku,
+              stock: variant.stock,
+            },
+            before?.variants.find((v) => v.id === variant.id)?.stock ??
+              Number.MAX_SAFE_INTEGER,
+            randomUUID(),
+          );
+      }
       await audit(tx, req, id ? "UPDATE" : "CREATE", section, record.id);
       return tx.product.findUnique({
         where: { id: record.id },
@@ -536,43 +580,91 @@ const userSchema = z.object({
     .string()
     .email()
     .transform((v) => v.toLowerCase()),
-  password: z.string().min(12).max(72).optional(),
+  notificationPreferences: z
+    .object(
+      Object.fromEntries(
+        notificationKeys.map((key) => [key, z.boolean().optional()]),
+      ),
+    )
+    .default({}),
   role: z.enum(["ADMIN", "MANAGER"]),
   active: z.boolean().default(true),
 });
 admin.post("/users", requireRole("ADMIN"), async (req, res) => {
-  const { password, ...data } = userSchema.parse(req.body);
-  if (!password) throw new HttpError(422, "Mot de passe requis.");
-  const u = await db.user.create({
-    data: { ...data, passwordHash: await bcrypt.hash(password, 12) },
+  const data = userSchema.parse(req.body);
+  const u = await transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: { ...data, passwordHash: "!unusable", emailVerified: true },
+    });
+    const user = await temporaryCredentials(tx, created);
+    await audit(tx, req, "INVITE", "users", user.id);
+    return user;
   });
   ok(res, redact("users", [u])[0], 201);
 });
 admin.put("/users/:id", requireRole("ADMIN"), async (req, res) => {
   const id = String(req.params.id);
-  const { password, ...data } = userSchema.parse(req.body);
+  const data = userSchema.parse(req.body);
   if (id === req.user!.id && (!data.active || data.role !== "ADMIN"))
     throw new HttpError(
       422,
       "Vous ne pouvez pas retirer votre propre accès administrateur.",
     );
-  const u = await db.user.update({
-    where: { id },
-    data: {
-      ...data,
-      tokenVersion: { increment: 1 },
-      ...(password ? { passwordHash: await bcrypt.hash(password, 12) } : {}),
-    },
+  const u = await transaction(async (tx) => {
+    const previous = await tx.user.findUniqueOrThrow({ where: { id } });
+    if (previous.role === "CUSTOMER")
+      throw new HttpError(
+        422,
+        "Les comptes clients ne peuvent pas être convertis ici.",
+      );
+    if (data.email !== previous.email)
+      throw new HttpError(
+        422,
+        "L’adresse de connexion ne peut pas être modifiée ici. Créez un nouvel accès.",
+      );
+    const revoke =
+      previous.active !== data.active || previous.role !== data.role;
+    if (revoke) await invalidateSecurity(tx, id);
+    const user = await tx.user.update({
+      where: { id },
+      data: { ...data, ...(revoke ? { tokenVersion: { increment: 1 } } : {}) },
+    });
+    await audit(tx, req, "UPDATE", "users", id);
+    return user;
   });
   ok(res, redact("users", [u])[0]);
 });
+admin.post(
+  "/users/:id/credentials",
+  requireRole("ADMIN"),
+  limited,
+  async (req, res) => {
+    const id = String(req.params.id);
+    if (id === req.user!.id)
+      throw new HttpError(
+        422,
+        "Utilisez le changement de mot de passe de votre compte.",
+      );
+    await transaction(async (tx) => {
+      const user = await tx.user.findUniqueOrThrow({ where: { id } });
+      if (!user.active || user.role === "CUSTOMER")
+        throw new HttpError(422, "Compte interne actif requis.");
+      await temporaryCredentials(tx, user);
+      await audit(tx, req, "REGENERATE_CREDENTIALS", "users", id);
+    });
+    ok(res, {
+      message:
+        "De nouveaux identifiants valables 24 heures ont été mis en file d’envoi.",
+    });
+  },
+);
 
 admin.get("/notifications", requireRole("ADMIN"), async (req, res) => {
   const { page: p, limit, skip } = page(req.query);
   const q = String(req.query.q || "").slice(0, 200);
   const status = req.query.status
     ? z
-        .enum(["PENDING", "SENDING", "RETRY", "SENT", "FAILED"])
+        .enum(["PENDING", "SENDING", "RETRY", "SENT", "FAILED", "CANCELLED"])
         .parse(req.query.status)
     : undefined;
   const where: Prisma.EmailNotificationWhereInput = {
@@ -615,14 +707,21 @@ admin.get("/notifications", requireRole("ADMIN"), async (req, res) => {
     smtpConfigured: smtpConfigured(),
   });
 });
-admin.get("/notifications/:id", requireRole("ADMIN"), async (req, res) =>
+admin.get("/notifications/:id", requireRole("ADMIN"), async (req, res) => {
+  const mail = await db.emailNotification.findUniqueOrThrow({
+    where: { id: String(req.params.id) },
+  });
   ok(
     res,
-    await db.emailNotification.findUniqueOrThrow({
-      where: { id: String(req.params.id) },
-    }),
-  ),
-);
+    mail.sensitive
+      ? {
+          ...mail,
+          html: "<p>Contenu de sécurité confidentiel.</p>",
+          text: "Contenu de sécurité confidentiel.",
+        }
+      : mail,
+  );
+});
 admin.post(
   "/notifications/:id/retry",
   requireRole("ADMIN"),
@@ -630,6 +729,17 @@ admin.post(
     const mail = await db.emailNotification.findUniqueOrThrow({
       where: { id: String(req.params.id) },
     });
+    const cutoff = deliveryCutoff(process.env);
+    if (mail.sensitive)
+      throw new HttpError(
+        409,
+        "Utilisez une nouvelle demande de vérification, de réinitialisation ou de nouveaux identifiants.",
+      );
+    if (!cutoff || mail.createdAt < cutoff)
+      throw new HttpError(
+        409,
+        "Notification antérieure au seuil d’envoi ou seuil non configuré. Relance bloquée.",
+      );
     if (mail.status === "SENDING")
       throw new HttpError(409, "Envoi déjà en cours.");
     ok(

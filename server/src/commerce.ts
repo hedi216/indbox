@@ -4,7 +4,7 @@ import { db, transaction } from "./db.js";
 import { HttpError } from "./http.js";
 import { cartSchema, customerSchema } from "./validation.js";
 import { z } from "zod";
-import { orderEmail } from "./mail.js";
+import { orderEmail, lowStockEmail } from "./mail.js";
 type DB = Prisma.TransactionClient;
 export const productInclude = {
   category: true,
@@ -291,6 +291,15 @@ export async function placeOrder(
       include: { items: true, history: true },
     });
     await orderEmail(tx, completed, "ORDER_CREATED");
+    for (const i of items)
+      if (i.trackStock)
+        await lowStockEmail(
+          tx,
+          { ...i, stock: i.stock - i.quantity },
+          i.stock,
+          `${completed.id}:${i.variantId || i.productId}`,
+          completed.number,
+        );
     return completed;
   });
 }

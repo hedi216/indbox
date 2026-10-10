@@ -15,7 +15,8 @@
     "test": "npm run test -w server",
     "test:e2e": "playwright test",
     "format": "prettier --write client/src server/src server/test tests README.md",
-    "format:check": "prettier --check client/src server/src server/test tests README.md"
+    "format:check": "prettier --check client/src server/src server/test tests README.md",
+    "test:isolated": "node scripts/test-isolated.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

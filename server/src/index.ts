@@ -48,6 +48,22 @@ app.use("/api", (req, _res, next) => {
   next();
 });
 app.use(optionalAuth);
+app.use("/api", (req, _res, next) => {
+  const allowed =
+    (req.method === "GET" && req.path === "/auth/me") ||
+    (req.method === "POST" &&
+      ["/auth/login", "/auth/logout", "/auth/change-password"].includes(
+        req.path,
+      ));
+  if (req.user?.mustChangePassword && !allowed)
+    return next(
+      new HttpError(
+        403,
+        "Vous devez changer votre mot de passe avant de continuer.",
+      ),
+    );
+  next();
+});
 app.use("/assets", express.static(path.join(root, "assets"), { maxAge: "1d" }));
 app.use(
   "/uploads/quotes",

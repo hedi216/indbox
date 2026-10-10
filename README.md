@@ -11,7 +11,7 @@ npm ci
 cp server/.env.example server/.env
 ```
 
-Modifiez `server/.env` : connexion PostgreSQL et secret JWT aléatoire. Générer un secret :
+Pour le développement local uniquement, modifiez `server/.env` : connexion PostgreSQL, `CLIENT_ORIGIN=http://localhost:5175,http://127.0.0.1:5175`, `PUBLIC_URL=http://localhost:5175` et secret JWT aléatoire. Les exemples indiquent le domaine de production mais ne doivent jamais remplacer son fichier `.env`. Générer un secret :
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
@@ -73,7 +73,7 @@ Le seed est relançable sans effacer les modifications existantes. Il crée 7 ca
 - Email : `admin@indbox.local`
 - Mot de passe : `Indbox-Dev-2026!`
 
-Ces identifiants sont **uniquement destinés au développement**. Définissez `SEED_ADMIN_EMAIL` et `SEED_ADMIN_PASSWORD` avant un premier seed de production et changez le mot de passe dans Utilisateurs. La connexion utilise bcrypt (coût 12), JWT signé HS256 de 8 heures, cookie HTTP-only, SameSite=Lax, Secure en production. La déconnexion et les modifications d’accès révoquent les sessions via `tokenVersion`. Aucun JWT n’est conservé dans localStorage.
+Ces identifiants sont **uniquement destinés au développement**. Ne lancez jamais le seed sur la production existante. La connexion utilise bcrypt (coût 12), JWT signé HS256 de 8 heures, cookie HTTP-only, SameSite=Lax, Secure en production. La déconnexion et les modifications d’accès révoquent les sessions via `tokenVersion`. Aucun JWT n’est conservé dans localStorage.
 
 ### Droits
 
@@ -82,7 +82,7 @@ Ces identifiants sont **uniquement destinés au développement**. Définissez `S
 | Dashboard, produits, commandes, devis, clients, promotions, coupons     | Oui   | Oui     |
 | Catégories, services, messages, paramètres, utilisateurs, notifications | Oui   | Non     |
 
-Les contrôles sont effectués par le serveur. Un client peut créer un compte, se connecter, modifier son profil et consulter uniquement ses propres commandes. La commande invitée reste disponible. Une adresse email déjà utilisée pour une commande invitée ne peut pas être automatiquement revendiquée par un nouveau compte : une procédure de vérification serait nécessaire pour fusionner les historiques en sécurité.
+Les contrôles sont effectués par le serveur. Un client peut créer un compte, se connecter, modifier son profil et consulter uniquement ses propres commandes. La commande invitée reste disponible. Une adresse email déjà utilisée pour une commande invitée ne peut pas être automatiquement revendiquée par un nouveau compte : la liaison avec cet historique se fait uniquement après vérification de l’adresse email.
 
 ## Fonctionnement commercial
 
@@ -118,23 +118,30 @@ Les confirmations de commande comprennent référence, client, articles, variant
 ### Variables à remplir plus tard dans `server/.env`
 
 ```dotenv
-SMTP_HOST=smtp.votre-fournisseur.tld
-SMTP_PORT=587
+SMTP_HOST=127.0.0.1
+SMTP_PORT=25
 SMTP_SECURE=false
-SMTP_USER=votre-identifiant
-SMTP_PASS=votre-secret
-MAIL_FROM="IN-D-BOX <commandes@votre-domaine.tld>"
+SMTP_USER=
+SMTP_PASS=
+MAIL_FROM="IN-D-BOX <no-reply@indbox.tn>"
+MAIL_REPLY_TO=
+MAIL_DELIVERY_ENABLED=false
+MAIL_DELIVERY_NOT_BEFORE=
+PUBLIC_URL=https://indbox.tn
+CLIENT_ORIGIN=https://indbox.tn
 ADMIN_NOTIFICATION_EMAIL=equipe@votre-domaine.tld
 ```
 
-- Port 587 : STARTTLS ; port 465 : `SMTP_SECURE=true`.
-- Redémarrez le serveur après configuration. Le worker traite automatiquement les emails en attente toutes les 15 secondes, 20 messages maximum par passage.
+- Production actuelle : MailEnable Standard sur `127.0.0.1:25`, sans authentification ni TLS sur cette connexion locale uniquement. Les relais distants en production exigent toujours TLS (587 STARTTLS ou 465 avec `SMTP_SECURE=true`).
+- Les identifiants SMTP seuls ne déclenchent aucun envoi. L’activation manuelle exige `MAIL_DELIVERY_ENABLED=true` et un seuil UTC ISO `MAIL_DELIVERY_NOT_BEFORE`. Seuls les messages créés à partir de ce seuil sont éligibles, y compris lors des relances et reprises. Le worker les traite toutes les 15 secondes, 20 maximum par passage. Voir [DEPLOYMENT.md](DEPLOYMENT.md).
 - L’administration **Notifications email** montre destinataire, sujet, état, tentatives et dernière erreur, avec recherche, filtres et aperçu HTML/texte. « Relancer » remet un message en file ; un email déjà envoyé nécessite confirmation avant renvoi.
 - 5 tentatives maximum avec délai exponentiel, puis `FAILED`. Réessayez depuis l’admin après correction.
 - Verrouillage PostgreSQL `FOR UPDATE SKIP LOCKED` : plusieurs processus peuvent fonctionner sans prendre simultanément le même message. Les envois bloqués sont repris après 5 minutes.
 - Déduplication des événements en base et `Message-ID` stable. Comme tout envoi SMTP, un arrêt entre acceptation par le fournisseur et confirmation en base peut exceptionnellement provoquer un renvoi : ce système garantit la reprise, pas une livraison exactement une fois.
-- SPF/DKIM/DMARC, adresse d’expéditeur validée, domaine et délivrabilité restent à configurer auprès de votre fournisseur. Aucun accès SMTP réel n’est fourni dans le dépôt.
-- Avant d’activer le SMTP sur une base de développement, retirez les notifications de test que vous ne souhaitez pas envoyer. Les tests utilisent des adresses `example.com`.
+- L’opérateur a confirmé la réception Gmail depuis MailEnable et la configuration SPF/DKIM/DMARC existante. La validation finale reste manuelle ; aucun changement DNS ou activation d’envoi n’est automatisé.
+- Conservez l’historique : les anciens messages restent en base et sont bloqués par le seuil, sans suppression. Ne reculez jamais ce seuil pour libérer la file. Les tests utilisent une base isolée et un SMTP local.
+- Tous les emails HTML et texte se terminent par « Email généré par BizzRes, une solution de Comeleon Studio. » puis https://www.comeleonstudio.com. La signature est centralisée dans `mail-policy.ts`, à la création et à l’envoi.
+- Aucun compte mail dédié n’est requis pour `no-reply@indbox.tn`. Le domaine doit être vérifié par le fournisseur sortant. `contact@indbox.tn` reste une adresse prévue tant que sa réception ou redirection n’est pas validée.
 
 ## Architecture
 
@@ -211,16 +218,9 @@ Rapport navigateur : `playwright-report/index.html`. Captures et traces : `test-
 
 ## Production
 
-```sh
-npm ci
-npm run db:generate
-npm run db:migrate
-npm run build
-# Depuis server/.env : NODE_ENV=production, origines et PUBLIC_URL=https://votre-domaine
-npm run start -w server
-```
+La production existe déjà sur **https://indbox.tn**, sur Contabo Windows avec NSSM, Cloudflare Tunnel et MailEnable local. Suivez la [checklist manuelle de déploiement](DEPLOYMENT.md). Aucun déploiement automatique, seed, reset de base ou remplacement du `.env` de production. La migration additive **202610090001_account_security** est requise avant le démarrage de cette version.
 
-Express sert aussi `client/dist` en production. Placez-le derrière un proxy HTTPS sur la même origine ; il écoute sur `127.0.0.1:4000`. Réglez `TRUST_PROXY` au nombre réel de proxies de confiance (par exemple `1` avec un proxy local), `PUBLIC_URL` et `CLIENT_ORIGIN`. PostgreSQL ne doit pas être accessible publiquement. Utilisez un gestionnaire de processus, des sauvegardes PostgreSQL/uploads, la rotation des logs, un environnement de staging et une surveillance de `/api/health`/de la file email.
+Express sert `client/dist` en production. Conservez les ports, paramètres NSSM, `TRUST_PROXY`, proxy et redirections canoniques existants.
 
 Le catalogue filtre, recherche, trie et pagine dans PostgreSQL, y compris les prix promotionnels. Les horodatages utilisent `timestamptz` pour rester cohérents quel que soit le fuseau du serveur. Les polices sont hébergées localement.
 
@@ -229,3 +229,15 @@ La configuration Helmet/CORS, la validation Zod, les requêtes Prisma paramétr�
 Aucun secret réel ne doit être ajouté à Git. `.env`, données PostgreSQL locales, uploads, builds et rapports de tests sont exclus. Les dépendances sont verrouillées dans `package-lock.json`; deux overrides ciblés corrigent les dépendances transitives de la CLI Prisma 6 sans changer la version de son moteur.
 
 Les prompts et la provenance des visuels générés sont documentés dans [assets/catalog/PROVENANCE.md](assets/catalog/PROVENANCE.md).
+
+## Sécurité des comptes et notifications internes
+
+Les mots de passe créés ou remplacés exigent 12 caractères, une majuscule, une minuscule, un chiffre et un caractère spécial (72 octets maximum). Les mots de passe existants continuent de fonctionner. La même politique alimente les indicateurs du navigateur et la validation serveur.
+
+L’inscription envoie un email de bienvenue avec vérification (24 h), suivi d’une confirmation après vérification. Les pages `/resend-verification`, `/forgot-password`, `/reset-password` et `/change-password` couvrent les demandes et le changement de mot de passe. Les liens de réinitialisation expirent après une heure et sont à usage unique. Tout changement révoque les anciennes sessions et envoie une confirmation. La vérification ne bloque pas le checkout invité ni les comptes existants.
+
+Dans Utilisateurs, l’administrateur crée un accès ADMIN/MANAGER sans saisir de mot de passe. Le système génère et envoie des identifiants temporaires valables 24 h. Le serveur bloque les autres opérations tant que ce mot de passe n’est pas changé. « Régénérer et envoyer les identifiants » invalide les anciens accès. Chaque employé dispose de six préférences email, désactivées par défaut, avec déduplication des destinataires.
+
+Les alertes de stock sont émises lors du passage sous le seuil inclusif `LOW_STOCK_THRESHOLD` (5 unités de vente par défaut), avec produit/SKU et référence de commande lorsque disponible. Les emails de sécurité sont confidentiels dans l’aperçu administrateur, expirent dans l’outbox et ne peuvent pas être relancés : demandez un nouveau lien ou de nouveaux identifiants.
+
+Validation complète isolée : `npm run test:isolated` (PostgreSQL et Chromium Playwright installés). Voir [DEPLOYMENT.md](DEPLOYMENT.md) pour les prérequis Windows, la migration, les contrôles et le rollback.

@@ -2762,3 +2762,13 @@ td a:hover {
     scroll-behavior: auto !important;
   }
 }
+
+.password-rules {
+  list-style: none;
+  padding: 0;
+  font-size: 0.85rem;
+  color: #675e51;
+}
+.password-rules li[data-valid="true"] {
+  color: #22683c;
+}

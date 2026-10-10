@@ -73,6 +73,7 @@ export function Admin() {
           <img src="/assets/logo.png" alt="IN-D-BOX" />
           <span>ESPACE ADMINISTRATION</span>
         </Link>
+        <Link to="/change-password">Changer mon mot de passe</Link>
         <p className="sidebar-label">VOTRE BOUTIQUE</p>
         <nav>
           {sections
@@ -194,6 +195,9 @@ function AdminLogin() {
         <button className="button dark wide" disabled={busy}>
           {busy ? "Connexion…" : "Se connecter"} <ArrowUpRight size={18} />
         </button>
+        <Link className="text-link" to="/forgot-password">
+          Mot de passe oublié ?
+        </Link>
         <Link className="text-link" to="/">
           ← Revenir à la boutique
         </Link>
@@ -405,7 +409,7 @@ function Manager({ section, title }: { section: string; title: string }) {
         : section === "messages"
           ? ["NEW", "READ", "ARCHIVED"]
           : section === "notifications"
-            ? ["PENDING", "SENDING", "RETRY", "SENT", "FAILED"]
+            ? ["PENDING", "SENDING", "RETRY", "SENT", "FAILED", "CANCELLED"]
             : [];
   async function remove(row: any) {
     if (
@@ -475,8 +479,8 @@ function Manager({ section, title }: { section: string; title: string }) {
       {section === "notifications" && (
         <p className="notice">
           {r.meta.smtpConfigured
-            ? "SMTP configuré : envoi automatique toutes les 15 secondes."
-            : "SMTP non configuré : les emails restent en attente. Configurez les variables SMTP pour activer les envois."}
+            ? "Envoi activé : les emails créés à partir du seuil configuré sont traités toutes les 15 secondes."
+            : "Envoi désactivé ou configuration incomplète : les emails restent en attente. L’activation nécessite une configuration SMTP validée et un seuil de date ; les anciens emails restent bloqués."}
         </p>
       )}
       <form
@@ -1137,7 +1141,13 @@ function defaultData(section: string) {
       active: true,
     };
   if (section === "users")
-    return { name: "", email: "", password: "", role: "MANAGER", active: true };
+    return {
+      name: "",
+      email: "",
+      notificationPreferences: {},
+      role: "MANAGER",
+      active: true,
+    };
   return {
     ...{
       type: "PERCENTAGE",
@@ -1180,6 +1190,7 @@ function Editor({
   const [tab, setTab] = useState("Général"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const { notify } = useStore();
   const options = useApi("/admin/options");
   const cats = { data: options.data?.categories };
   const products = { data: options.data?.products };
@@ -1650,14 +1661,6 @@ function Editor({
               <div className="form-grid">
                 {field("name", "Nom", "text", true)}
                 {field("email", "Email", "email", true)}
-                {field(
-                  "password",
-                  initial.id
-                    ? "Nouveau mot de passe (laisser vide pour conserver)"
-                    : "Mot de passe (12 caractères minimum)",
-                  "password",
-                  !initial.id,
-                )}
                 <Field label="Rôle">
                   <select
                     value={d.role}
@@ -1669,6 +1672,61 @@ function Editor({
                 </Field>
               </div>
               {check("active", "Accès activé")}
+              <p>
+                Un mot de passe temporaire est généré et envoyé automatiquement
+                à la création. Il expire après 24 heures et doit être remplacé à
+                la première connexion.
+              </p>
+              <fieldset>
+                <legend>Notifications de cet utilisateur</legend>
+                {Object.entries({
+                  newOrders: "Nouvelles commandes",
+                  orderStatus: "Statuts des commandes",
+                  newQuotes: "Nouveaux devis",
+                  quoteStatus: "Statuts des devis",
+                  contacts: "Messages de contact",
+                  lowStock: "Stock faible",
+                }).map(([key, label]) => (
+                  <label key={key} className="check">
+                    <input
+                      type="checkbox"
+                      checked={d.notificationPreferences?.[key] === true}
+                      onChange={(e) =>
+                        set("notificationPreferences", {
+                          ...d.notificationPreferences,
+                          [key]: e.target.checked,
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+              {initial.id && (
+                <button
+                  type="button"
+                  className="button outline"
+                  onClick={async () => {
+                    if (
+                      !confirm(
+                        "Invalider les identifiants et sessions précédents, puis envoyer de nouveaux identifiants valables 24 heures ?",
+                      )
+                    )
+                      return;
+                    try {
+                      const r = await send(
+                        `/admin/users/${initial.id}/credentials`,
+                        {},
+                      );
+                      notify(r.data.message);
+                    } catch (e: any) {
+                      setError(e.message);
+                    }
+                  }}
+                >
+                  Régénérer et envoyer les identifiants
+                </button>
+              )}
             </>
           )}
           {["coupons", "promotions"].includes(section) && (

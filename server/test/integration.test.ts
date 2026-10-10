@@ -496,7 +496,28 @@ test("Full PostgreSQL commerce lifecycle, authorization and transactional stock"
         role: "MANAGER",
       });
       assert.equal(r.status, 201);
+      const invitation = await db.emailNotification.findFirstOrThrow({
+        where: { to: r.data.email, event: { startsWith: "SECURITY_INVITE_" } },
+        orderBy: { createdAt: "desc" },
+      });
+      const temporaryPassword = invitation.html.match(
+        /Mot de passe temporaire : <strong>([^<]+)</,
+      )![1];
       const manager = new Session();
+      await manager.request("/auth/login", "POST", {
+        email: r.data.email,
+        password: temporaryPassword,
+      });
+      assert.equal((await manager.request("/admin/products")).status, 403);
+      assert.equal(
+        (
+          await manager.request("/auth/change-password", "POST", {
+            currentPassword: temporaryPassword,
+            password: "Qa-Password-2026!",
+          })
+        ).status,
+        200,
+      );
       await manager.request("/auth/login", "POST", {
         email: r.data.email,
         password: "Qa-Password-2026!",
@@ -542,6 +563,53 @@ test("Full PostgreSQL commerce lifecycle, authorization and transactional stock"
         ).status,
         403,
       );
+    },
+  );
+  await t.test(
+    "all queued transactional templates carry the shared signature",
+    async () => {
+      const messages = await db.emailNotification.findMany({
+        where: { to: email },
+      });
+      for (const event of [
+        "ORDER_CREATED",
+        "ORDER_STATUS",
+        "QUOTE_CREATED",
+        "QUOTE_STATUS",
+        "CONTACT_RECEIVED",
+      ]) {
+        assert.ok(
+          messages.some((m) => m.event === event),
+          event,
+        );
+      }
+      for (const message of messages) {
+        assert.ok(
+          message.html.includes(
+            "Email généré par BizzRes, une solution de Comeleon Studio.",
+          ),
+        );
+        assert.ok(
+          message.text.endsWith(
+            "Email généré par BizzRes, une solution de Comeleon Studio.\nhttps://www.comeleonstudio.com",
+          ),
+        );
+        if (message.event.startsWith("ORDER"))
+          assert.ok(
+            message.text.includes(
+              new URL(
+                "/account",
+                process.env.PUBLIC_URL || "http://localhost:5175",
+              ).href,
+            ),
+          );
+      }
+      const retry = await admin.request(
+        "/admin/notifications/" + messages[0].id + "/retry",
+        "POST",
+        {},
+      );
+      assert.equal(retry.status, 409, "unset cutoff must block manual release");
     },
   );
   await t.test(
